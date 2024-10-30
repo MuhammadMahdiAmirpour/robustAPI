@@ -1,16 +1,18 @@
 package com.github.robustapi.request;
 
 import jakarta.validation.constraints.NotBlank;
+import lombok.Builder;
 import lombok.Data;
 
 import java.util.UUID;
 
 @Data
-public class RequestDetails {
+@Builder
+public class APIRequest {
 	@NotBlank
-	private String userAgent;
+	private UUID analyzerId;
 	@NotBlank
-	private String sourceIp;
+	private String phoneNumber;
 	@NotBlank
-	private UUID requestId;
+	private APIRequestDetails requestDetails;
 }
