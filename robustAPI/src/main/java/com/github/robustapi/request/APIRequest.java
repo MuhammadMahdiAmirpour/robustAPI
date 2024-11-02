@@ -9,10 +9,7 @@ import java.util.UUID;
 @Data
 @Builder
 public class APIRequest {
-	@NotBlank
-	private UUID analyzerId;
-	@NotBlank
-	private String phoneNumber;
-	@NotBlank
-	private APIRequestDetails requestDetails;
+	@NotBlank private UUID analyzerId;
+	@NotBlank private String phoneNumber;
+	@NotBlank private APIRequestDetails requestDetails;
 }

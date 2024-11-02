@@ -8,14 +8,14 @@ import lombok.*;
 
 
 @Entity
-@Table(name="users")
+@Table(name = "users")
 @Getter
 @Setter
 @NoArgsConstructor
 @AllArgsConstructor
 @JsonIgnoreProperties({"hibernateLazyInitializer", "handler"})
 @Builder
-public class User {
+public class SIMCardUser {
 	@Id
 	@Column(unique = true)
 	@JsonProperty("nationalId")

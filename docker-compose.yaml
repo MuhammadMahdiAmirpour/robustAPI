@@ -4,7 +4,8 @@ services:
   robust-api:
     build:
       context: .
-      dockerfile: Dockerfile
+      dockerfile: robustAPI/Dockerfile
+    container_name: robust-api
     ports:
       - "9192:9192"
     environment:
@@ -12,20 +13,98 @@ services:
       SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/robustapidb
       SPRING_DATASOURCE_USERNAME: root
       SPRING_DATASOURCE_PASSWORD: RoottooR123$
+      SPRING_RABBITMQ_HOST: rabbitmq
+      SPRING_RABBITMQ_PORT: 5672
+      SPARK_LOCAL_IP: robust-api
+      SPARK_MASTER_URL: spark://spark-master:7077
+      # JAVA_TOOL_OPTIONS: "--add-opens java.base/java.lang=ALL-UNNAMED --add-opens java.base/java.nio=ALL-UNNAMED --add-opens java.base/sun.nio.ch=ALL-UNNAMED"
+    networks:
+      - app-network
     depends_on:
       - mysql
+      - rabbitmq
+      - spark-master
 
   mysql:
-    image: mysql:8.0
+    image: mysql:latest
+    container_name: mysql
     restart: always
     environment:
-      MYSQL_ROOT_PASSWORD: RoottooR123$
       MYSQL_DATABASE: robustapidb
+      MYSQL_ROOT_PASSWORD: RoottooR123$
     ports:
       - "3306:3306"
+    networks:
+      - app-network
     volumes:
       - db_data:/var/lib/mysql
-      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+      - ./db/mysql-init/01-create-database.sql:/docker-entrypoint-initdb.d/1.sql
+      - ./db/mysql-init/02-init.sql:/docker-entrypoint-initdb.d/2.sql
+    healthcheck:
+      test: [ "CMD", "mysqladmin", "ping", "-h", "localhost", "--silent" ]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+
+  rabbitmq:
+    image: docker.arvancloud.ir/rabbitmq:latest
+    container_name: rabbitmq
+    restart: always
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    networks:
+      - app-network
+
+  spark-master:
+    image: docker.arvancloud.ir/bitnami/spark:3.5.1
+    container_name: spark-master
+    environment:
+      - SPARK_MODE=master
+      - SPARK_RPC_AUTHENTICATION_ENABLED=no
+      - SPARK_RPC_ENCRYPTION_ENABLED=no
+      - SPARK_LOCAL_STORAGE_ENCRYPTION_ENABLED=no
+      - SPARK_SSL_ENABLED=no
+    ports:
+      - '8080:8080'
+      - '7077:7077'
+    networks:
+      - app-network
+
+  spark-worker:
+    image: docker.arvancloud.ir/bitnami/spark:3.5.1
+    container_name: spark-worker
+    environment:
+      - SPARK_MODE=worker
+      - SPARK_MASTER_URL=spark://spark-master:7077
+      - SPARK_WORKER_MEMORY=1G
+      - SPARK_WORKER_CORES=1
+      - SPARK_RPC_AUTHENTICATION_ENABLED=no
+      - SPARK_RPC_ENCRYPTION_ENABLED=no
+      - SPARK_LOCAL_STORAGE_ENCRYPTION_ENABLED=no
+      - SPARK_SSL_ENABLED=no
+    depends_on:
+      - spark-master
+    networks:
+      - app-network
+
+  # monitoring-app:
+  #   build:
+  #     context: .
+  #     dockerfile: SparkMonitoring/Dockerfile
+  #   container_name: monitoring-app
+  #   depends_on:
+  #     - spark-master
+  #     - mysql
+  #   environment:
+  #     - SPARK_MASTER_URL=spark://spark-master:7077
+  #     - MYSQL_URL=jdbc:mysql://mysql:3306/monitoring
+  #     - MYSQL_USER=root
+  #     - MYSQL_PASSWORD=RoottooR123$
 
 volumes:
   db_data:
+
+networks:
+  app-network:
+
