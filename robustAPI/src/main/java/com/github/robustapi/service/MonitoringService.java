@@ -9,6 +9,7 @@ import org.apache.spark.sql.SparkSession;
 import org.apache.spark.sql.functions;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.slf4j.Logger;
@@ -19,6 +20,7 @@ public class MonitoringService {
 
     private static final Logger logger = LoggerFactory.getLogger(MonitoringService.class);
     private final JdbcTemplate jdbcTemplate;
+    @Lazy
     private final LoadSimulator loadSimulator;
 
     @Value("${spring.datasource.url}")
@@ -40,8 +42,8 @@ public class MonitoringService {
 
     @PostConstruct
     public void init() {
-        startMonitoring();
         loadSimulator.startSimulation(100);
+        startMonitoring();
     }
 
     public void startMonitoring() {
@@ -112,7 +114,6 @@ public class MonitoringService {
     @PreDestroy
     public void stopMonitoring() {
         running = false;
-        loadSimulator.stopSimulation();
         if (monitoringThread != null && monitoringThread.isAlive()) {
             try {
                 monitoringThread.join(5000); // Wait up to 5 seconds for the thread to finish
@@ -123,6 +124,7 @@ public class MonitoringService {
             }
         }
         stopSparkSession();
+        loadSimulator.stopSimulation();
     }
 
     private void stopSparkSession() {

@@ -3,7 +3,6 @@ package com.github.robustapi.simulation;
 import com.github.robustapi.request.APIRequest;
 import com.github.robustapi.request.APIRequestDetails;
 import com.github.robustapi.response.APIResponse;
-import com.github.robustapi.service.MonitoringService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -21,15 +20,13 @@ public class LoadSimulator {
     @Value("${api.endpoint.url}") // Define your API endpoint in application.properties
     private String apiEndpoint;
 
-    private final MonitoringService monitoringService;
     private final RestTemplate restTemplate;
     private final JdbcTemplate jdbcTemplate;
 
     private volatile boolean running = true;
 
     @Autowired
-    public LoadSimulator(MonitoringService monitoringService, RestTemplate restTemplate, JdbcTemplate jdbcTemplate) {
-        this.monitoringService = monitoringService;
+    public LoadSimulator(RestTemplate restTemplate, JdbcTemplate jdbcTemplate) {
         this.restTemplate = restTemplate;
         this.jdbcTemplate = jdbcTemplate;
     }
@@ -59,15 +56,14 @@ public class LoadSimulator {
 
     private String fetchRandomPhoneNumber() {
         // Fetch a random phone number from the database
-        List<String> phoneNumbers = jdbcTemplate.queryForList("SELECT phone_number FROM api_logs ORDER BY RANDOM() LIMIT 1", String.class);
+        List<String> phoneNumbers = jdbcTemplate.queryForList("SELECT phone_number FROM users ORDER BY RANDOM() LIMIT 1", String.class);
         return phoneNumbers.isEmpty() ? null : phoneNumbers.get(0);
     }
 
     private void sendApiRequest(String analyzerId, String phoneNumber) {
-        APIRequest apiRequest = null;
         try {
             // Create the API request object with the specified structure
-            apiRequest = APIRequest.builder()
+            APIRequest apiRequest = APIRequest.builder()
                     .analyzerId(UUID.fromString(analyzerId)) // Use UUID for analyzerId
                     .phoneNumber(phoneNumber)
                     .requestDetails(APIRequestDetails.builder()
@@ -82,14 +78,11 @@ public class LoadSimulator {
 
             if (response != null) {
                 System.out.printf("Successful request from %s: Response: %s%n", analyzerId, response.getMessage());
-                monitoringService.logApiRequest(analyzerId, phoneNumber, 200L, "SUCCESS", apiRequest.toString().length());
             } else {
                 System.err.printf("Failed request from %s: No response received%n", analyzerId);
-                monitoringService.logApiRequest(analyzerId, phoneNumber, 500L, "ERROR", apiRequest.toString().length());
             }
         } catch (Exception e) {
             System.err.printf("Error sending request from %s: %s%n", analyzerId, e.getMessage());
-            monitoringService.logApiRequest(analyzerId, phoneNumber, 500L, "EXCEPTION: " + e.getMessage(), apiRequest.toString().length());
         }
     }
 
