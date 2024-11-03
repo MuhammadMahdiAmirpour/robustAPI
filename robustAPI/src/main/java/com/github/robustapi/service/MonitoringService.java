@@ -1,6 +1,5 @@
 package com.github.robustapi.service;
 
-import com.github.robustapi.simulation.LoadSimulator;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 import org.apache.spark.sql.Dataset;
@@ -20,8 +19,6 @@ public class MonitoringService {
 
     private static final Logger logger = LoggerFactory.getLogger(MonitoringService.class);
     private final JdbcTemplate jdbcTemplate;
-    @Lazy
-    private final LoadSimulator loadSimulator;
 
     @Value("${spring.datasource.url}")
     private String dbUrl;
@@ -35,14 +32,13 @@ public class MonitoringService {
     private SparkSession spark;
 
     @Autowired
-    public MonitoringService(JdbcTemplate jdbcTemplate, LoadSimulator loadSimulator) {
+    public MonitoringService(JdbcTemplate jdbcTemplate) {
         this.jdbcTemplate = jdbcTemplate;
-        this.loadSimulator = loadSimulator;
     }
 
     @PostConstruct
     public void init() {
-        loadSimulator.startSimulation(100);
+        createRequiredTables();
         startMonitoring();
     }
 
@@ -111,6 +107,34 @@ public class MonitoringService {
         }
     }
 
+    private void createRequiredTables() {
+        System.out.println("Creating required tables if they don't exist");
+
+        // Create users table
+        jdbcTemplate.execute("""
+                    CREATE TABLE IF NOT EXISTS users (
+                        id SERIAL PRIMARY KEY,
+                        national_id VARCHAR(255),
+                        first_name VARCHAR(255),
+                        last_name VARCHAR(255),
+                        birth_date DATE,
+                        address TEXT,
+                        phone_number VARCHAR(20)
+                    )
+                """);
+
+        // Create analysts table
+        jdbcTemplate.execute("""
+                    CREATE TABLE IF NOT EXISTS analysts (
+                        id SERIAL PRIMARY KEY,
+                        username VARCHAR(255),
+                        api_key VARCHAR(255)
+                    )
+                """);
+
+        System.out.println("Required tables created successfully");
+    }
+
     @PreDestroy
     public void stopMonitoring() {
         running = false;
@@ -124,7 +148,6 @@ public class MonitoringService {
             }
         }
         stopSparkSession();
-        loadSimulator.stopSimulation();
     }
 
     private void stopSparkSession() {
