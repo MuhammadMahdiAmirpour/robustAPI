@@ -1,5 +1,6 @@
 package com.github.robustapi.service;
 
+import com.github.robustapi.simulation.LoadSimulator;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 import org.apache.spark.sql.Dataset;
@@ -8,6 +9,7 @@ import org.apache.spark.sql.SparkSession;
 import org.apache.spark.sql.functions;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.slf4j.Logger;
@@ -18,6 +20,8 @@ public class MonitoringService {
 
     private static final Logger logger = LoggerFactory.getLogger(MonitoringService.class);
     private final JdbcTemplate jdbcTemplate;
+    @Lazy
+    private final LoadSimulator loadSimulator;
 
     @Value("${spring.datasource.url}")
     private String dbUrl;
@@ -31,64 +35,25 @@ public class MonitoringService {
     private SparkSession spark;
 
     @Autowired
-    public MonitoringService(JdbcTemplate jdbcTemplate) {
+    public MonitoringService(JdbcTemplate jdbcTemplate, LoadSimulator loadSimulator) {
         this.jdbcTemplate = jdbcTemplate;
+        this.loadSimulator = loadSimulator;
     }
 
     @PostConstruct
     public void init() {
-        createRequiredTables();
+        loadSimulator.startSimulation(100);
         startMonitoring();
     }
 
     public void startMonitoring() {
         try {
-            // Start monitoring thread
             monitoringThread = new Thread(this::monitoringLoop, "monitoring-thread");
             monitoringThread.start();
             logger.info("Monitoring thread started");
         } catch (Exception e) {
             logger.error("Failed to start monitoring service: {}", e.getMessage(), e);
         }
-    }
-
-    private void createRequiredTables() {
-        logger.info("Creating required tables if they don't exist");
-
-        // Create api_logs table
-        jdbcTemplate.execute("""
-                    CREATE TABLE IF NOT EXISTS api_logs (
-                        id SERIAL PRIMARY KEY,
-                        timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                        analyzer_id VARCHAR(255),
-                        phone_number VARCHAR(20),
-                        response_time_ms BIGINT,
-                        status VARCHAR(50),
-                        request_size INT
-                    )
-                """);
-
-        // Create request_rate_metrics table
-        jdbcTemplate.execute("""
-                    CREATE TABLE IF NOT EXISTS request_rate_metrics (
-                        id SERIAL PRIMARY KEY,
-                        calculation_time TIMESTAMP,
-                        analyzer_id VARCHAR(255),
-                        request_count BIGINT
-                    )
-                """);
-
-        // Create response_time_metrics table
-        jdbcTemplate.execute("""
-                    CREATE TABLE IF NOT EXISTS response_time_metrics (
-                        id SERIAL PRIMARY KEY,
-                        calculation_time TIMESTAMP,
-                        analyzer_id VARCHAR(255),
-                        avg_response_time_ms DOUBLE PRECISION
-                    )
-                """);
-
-        logger.info("Required tables created successfully");
     }
 
     private synchronized void ensureSparkInitialized() {
@@ -159,6 +124,7 @@ public class MonitoringService {
             }
         }
         stopSparkSession();
+        loadSimulator.stopSimulation();
     }
 
     private void stopSparkSession() {
@@ -174,50 +140,50 @@ public class MonitoringService {
     }
 
     private void calculateAndSaveMetrics() {
-    try {
-        ensureSparkInitialized();
-        // Read current data from the api_logs table in the database using Spark JDBC
-        Dataset<Row> apiLogs = spark.read().format("jdbc")
-                .option("url", dbUrl)
-                .option("dbtable", "api_logs")
-                .option("user", dbUser)
-                .option("password", dbPassword)
-                .load();
+        try {
+            ensureSparkInitialized();
+            // Read current data from the api_logs table in the database using Spark JDBC
+            Dataset<Row> apiLogs = spark.read().format("jdbc")
+                    .option("url", dbUrl)
+                    .option("dbtable", "api_logs")
+                    .option("user", dbUser)
+                    .option("password", dbPassword)
+                    .load();
 
-        logger.info("Retrieved {} records from api_logs", apiLogs.count());
+            logger.info("Retrieved {} records from api_logs", apiLogs.count());
 
-        // Calculate request rate with 5-minute increments
-        Dataset<Row> requestRate = apiLogs
-                .withColumn("time_bucket", functions.window(functions.col("timestamp"), "5 minutes"))
-                .groupBy("time_bucket", "analyzer_id")
-                .count()
-                .withColumnRenamed("count", "request_count")
-                .select(
-                    functions.col("time_bucket.start").as("calculation_time"),
-                    functions.col("analyzer_id"),
-                    functions.col("request_count")
-                );
+            // Calculate request rate with 5-minute increments
+            Dataset<Row> requestRate = apiLogs
+                    .withColumn("time_bucket", functions.window(functions.col("timestamp"), "5 minutes"))
+                    .groupBy("time_bucket", "analyzer_id")
+                    .count()
+                    .withColumnRenamed("count", "request_count")
+                    .select(
+                            functions.col("time_bucket.start").as("calculation_time"),
+                            functions.col("analyzer_id"),
+                            functions.col("request_count")
+                    );
 
-        // Calculate average response time with 1-minute granularity
-        Dataset<Row> avgResponseTime = apiLogs
-                .withColumn("time_bucket", functions.window(functions.col("timestamp"), "1 minute"))
-                .groupBy("time_bucket", "analyzer_id")
-                .agg(functions.avg("response_time_ms").alias("avg_response_time_ms"))
-                .select(
-                    functions.col("time_bucket.start").as("calculation_time"),
-                    functions.col("analyzer_id"),
-                    functions.col("avg_response_time_ms")
-                );
+            // Calculate average response time with 1-minute granularity
+            Dataset<Row> avgResponseTime = apiLogs
+                    .withColumn("time_bucket", functions.window(functions.col("timestamp"), "1 minute"))
+                    .groupBy("time_bucket", "analyzer_id")
+                    .agg(functions.avg("response_time_ms").alias("avg_response_time_ms"))
+                    .select(
+                            functions.col("time_bucket.start").as("calculation_time"),
+                            functions.col("analyzer_id"),
+                            functions.col("avg_response_time_ms")
+                    );
 
-        // Save metrics to OLAP system (using a simple table in the same database for demonstration)
-        saveMetricsToOLAP(requestRate, "request_rate_metrics");
-        saveMetricsToOLAP(avgResponseTime, "response_time_metrics");
+            // Save metrics to OLAP system (using a simple table in the same database for demonstration)
+            saveMetricsToOLAP(requestRate, "request_rate_metrics");
+            saveMetricsToOLAP(avgResponseTime, "response_time_metrics");
 
-        logger.info("Metrics calculated and saved successfully");
-    } catch (Exception e) {
-        logger.error("Error calculating and saving metrics: {}", e.getMessage(), e);
+            logger.info("Metrics calculated and saved successfully");
+        } catch (Exception e) {
+            logger.error("Error calculating and saving metrics: {}", e.getMessage(), e);
+        }
     }
-  }
 
     private void saveMetricsToOLAP(Dataset<Row> metrics, String tableName) {
         metrics.write()
