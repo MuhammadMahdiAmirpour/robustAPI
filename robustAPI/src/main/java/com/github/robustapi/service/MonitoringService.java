@@ -8,7 +8,6 @@ import org.apache.spark.sql.SparkSession;
 import org.apache.spark.sql.functions;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.context.annotation.Lazy;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.slf4j.Logger;
@@ -44,12 +43,52 @@ public class MonitoringService {
 
     public void startMonitoring() {
         try {
+            // Start monitoring thread
             monitoringThread = new Thread(this::monitoringLoop, "monitoring-thread");
             monitoringThread.start();
             logger.info("Monitoring thread started");
         } catch (Exception e) {
             logger.error("Failed to start monitoring service: {}", e.getMessage(), e);
         }
+    }
+
+    private void createRequiredTables() {
+        logger.info("Creating required tables if they don't exist");
+
+        // Create api_logs table
+        jdbcTemplate.execute("""
+                    CREATE TABLE IF NOT EXISTS api_logs (
+                        id SERIAL PRIMARY KEY,
+                        timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        analyzer_id VARCHAR(255),
+                        phone_number VARCHAR(20),
+                        response_time_ms BIGINT,
+                        status VARCHAR(50),
+                        request_size INT
+                    )
+                """);
+
+        // Create request_rate_metrics table
+        jdbcTemplate.execute("""
+                    CREATE TABLE IF NOT EXISTS request_rate_metrics (
+                        id SERIAL PRIMARY KEY,
+                        calculation_time TIMESTAMP,
+                        analyzer_id VARCHAR(255),
+                        request_count BIGINT
+                    )
+                """);
+
+        // Create response_time_metrics table
+        jdbcTemplate.execute("""
+                    CREATE TABLE IF NOT EXISTS response_time_metrics (
+                        id SERIAL PRIMARY KEY,
+                        calculation_time TIMESTAMP,
+                        analyzer_id VARCHAR(255),
+                        avg_response_time_ms DOUBLE PRECISION
+                    )
+                """);
+
+        logger.info("Required tables created successfully");
     }
 
     private synchronized void ensureSparkInitialized() {
@@ -105,34 +144,6 @@ public class MonitoringService {
             stopSparkSession();
             logger.info("Monitoring service shutdown completed");
         }
-    }
-
-    private void createRequiredTables() {
-        System.out.println("Creating required tables if they don't exist");
-
-        // Create users table
-        jdbcTemplate.execute("""
-                    CREATE TABLE IF NOT EXISTS users (
-                        id SERIAL PRIMARY KEY,
-                        national_id VARCHAR(255),
-                        first_name VARCHAR(255),
-                        last_name VARCHAR(255),
-                        birth_date DATE,
-                        address TEXT,
-                        phone_number VARCHAR(20)
-                    )
-                """);
-
-        // Create analysts table
-        jdbcTemplate.execute("""
-                    CREATE TABLE IF NOT EXISTS analysts (
-                        id SERIAL PRIMARY KEY,
-                        username VARCHAR(255),
-                        api_key VARCHAR(255)
-                    )
-                """);
-
-        System.out.println("Required tables created successfully");
     }
 
     @PreDestroy
@@ -234,4 +245,3 @@ public class MonitoringService {
         }
     }
 }
-
